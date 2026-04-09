@@ -1,0 +1,65 @@
+name: Cleanup GHCR Tags
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/cleanup-ghcr-tags.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Delete Legacy GHCR Tags
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          PACKAGE_NAME: sub-store-docker
+          TARGET_TAGS: 1.0.0,1.0,1
+        run: |
+          set -euo pipefail
+
+          versions_json="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/users/${OWNER}/packages/container/${PACKAGE_NAME}/versions?per_page=100"
+          )"
+
+          delete_ids="$(
+            node -e '
+              const versions = JSON.parse(process.argv[1]);
+              const targetTags = new Set(process.argv[2].split(","));
+              const matches = versions.filter((version) => {
+                const tags = version.metadata?.container?.tags || [];
+                return tags.some((tag) => targetTags.has(tag));
+              });
+              for (const version of matches) {
+                const tags = (version.metadata?.container?.tags || []).join(", ");
+                console.log(`Deleting version ${version.id} with tags: ${tags}`);
+              }
+              process.stderr.write(matches.map((version) => version.id).join(" "));
+            ' "$versions_json" "$TARGET_TAGS" 2>&1 >/dev/null
+          )"
+
+          if [ -z "${delete_ids}" ]; then
+            echo "No matching GHCR versions found."
+            exit 0
+          fi
+
+          for version_id in ${delete_ids}; do
+            echo "Deleting GHCR version ${version_id}"
+            curl -fsSL -X DELETE \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/users/${OWNER}/packages/container/${PACKAGE_NAME}/versions/${version_id}"
+          done
