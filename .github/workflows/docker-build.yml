@@ -5,8 +5,6 @@ on:
     branches:
       - main
       - master
-    tags:
-      - 'v*'
   pull_request:
   workflow_dispatch:
 
@@ -29,8 +27,15 @@ jobs:
       - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Detect Sub-Store Version
+        id: sub_store_version
+        if: github.event_name != 'pull_request' && github.ref_type == 'branch' && (github.ref_name == 'main' || github.ref_name == 'master')
+        run: |
+          version="$(node -p 'require("./third_party/Sub-Store/backend/package.json").version')"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request' && ((github.ref_type == 'branch' && (github.ref_name == 'main' || github.ref_name == 'master')) || github.ref_type == 'tag')
+        if: github.event_name != 'pull_request' && github.ref_type == 'branch' && (github.ref_name == 'main' || github.ref_name == 'master')
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -39,18 +44,19 @@ jobs:
 
       - name: Docker Metadata
         id: meta
-        if: github.event_name != 'pull_request' && ((github.ref_type == 'branch' && (github.ref_name == 'main' || github.ref_name == 'master')) || github.ref_type == 'tag')
+        if: github.event_name != 'pull_request' && github.ref_type == 'branch' && (github.ref_name == 'main' || github.ref_name == 'master')
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           flavor: |
             latest=false
           tags: |
-            type=raw,value=latest,enable=${{ github.ref_type == 'branch' && (github.ref_name == 'main' || github.ref_name == 'master') }}
-            type=raw,value=sha-${{ github.sha }},enable=${{ github.ref_type == 'branch' && (github.ref_name == 'main' || github.ref_name == 'master') }}
-            type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.ref_type == 'tag' }}
-            type=semver,pattern={{major}},enable=${{ github.ref_type == 'tag' && !startsWith(github.ref_name, 'v0.') && !startsWith(github.ref_name, '0.') }}
+            type=raw,value=latest
+            type=raw,value=sha-${{ github.sha }}
+            type=raw,value=http-meta
+            type=raw,value=${{ steps.sub_store_version.outputs.version }}-http-meta
+          labels: |
+            org.opencontainers.image.version=${{ steps.sub_store_version.outputs.version }}
 
       - name: Build Test Image
         if: github.event_name == 'pull_request' || (github.ref_type == 'branch' && github.ref_name != 'main' && github.ref_name != 'master')
@@ -66,7 +72,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and Push GHCR Image
-        if: github.event_name != 'pull_request' && ((github.ref_type == 'branch' && (github.ref_name == 'main' || github.ref_name == 'master')) || github.ref_type == 'tag')
+        if: github.event_name != 'pull_request' && github.ref_type == 'branch' && (github.ref_name == 'main' || github.ref_name == 'master')
         uses: docker/build-push-action@v6
         with:
           context: .
