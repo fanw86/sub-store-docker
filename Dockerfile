@@ -41,7 +41,8 @@ COPY third_party/Sub-Store/backend/pnpm-lock.yaml ./
 COPY third_party/Sub-Store/backend/patches ./patches
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --frozen-lockfile
+    pnpm config set registry https://registry.npmjs.org/ \
+ && pnpm install --no-frozen-lockfile
 
 COPY third_party/Sub-Store/backend/ ./
 
