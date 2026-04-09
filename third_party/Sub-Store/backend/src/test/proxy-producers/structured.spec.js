@@ -1,0 +1,1045 @@
+import { expect } from 'chai';
+import { describe, it } from 'mocha';
+
+import { ProxyUtils } from '@/core/proxy-utils';
+import {
+    UUID,
+    expectSubset,
+    loadProducedJson,
+    loadProducedYaml,
+    produceExternal,
+    produceInternal,
+} from './helpers';
+
+describe('Proxy structured producers', function () {
+    it('filters unsupported Clash proxies by default and normalizes vmess ws early data', function () {
+        const proxies = [
+            {
+                type: 'vmess',
+                name: 'Clash VMess',
+                server: 'vmess.example.com',
+                port: 443,
+                uuid: UUID,
+                cipher: 'chacha20',
+                aead: true,
+                tls: true,
+                sni: 'sni.example.com',
+                network: 'ws',
+                'ws-opts': {
+                    path: '/ws?ed=2048',
+                    headers: {
+                        Host: 'cdn.example.com',
+                    },
+                },
+            },
+            {
+                type: 'vless',
+                name: 'Clash Reality',
+                server: 'vless.example.com',
+                port: 443,
+                uuid: UUID,
+                tls: true,
+                flow: 'xtls-rprx-vision',
+                'reality-opts': {
+                    'public-key': 'pubkey',
+                    'short-id': '08',
+                },
+            },
+        ];
+
+        const internal = produceInternal('Clash', proxies);
+        const external = loadProducedYaml('Clash', proxies);
+
+        expect(internal).to.have.length(1);
+        expect(external.proxies).to.have.length(1);
+        expectSubset(internal[0], {
+            type: 'vmess',
+            name: 'Clash VMess',
+            cipher: 'auto',
+            alterId: 0,
+            servername: 'sni.example.com',
+            'ws-opts': {
+                path: '/ws',
+                headers: {
+                    Host: 'cdn.example.com',
+                },
+                'early-data-header-name': 'Sec-WebSocket-Protocol',
+                'max-early-data': 2048,
+            },
+        });
+    });
+
+    it('keeps unsupported Clash proxies when include-unsupported-proxy is enabled', function () {
+        const internal = produceInternal(
+            'Clash',
+            {
+                type: 'vless',
+                name: 'Clash Reality',
+                server: 'vless.example.com',
+                port: 443,
+                uuid: UUID,
+                tls: true,
+                flow: 'xtls-rprx-vision',
+                'reality-opts': {
+                    'public-key': 'pubkey',
+                    'short-id': '08',
+                },
+            },
+            { 'include-unsupported-proxy': true },
+        );
+
+        expect(internal).to.have.length(1);
+        expectSubset(internal[0], {
+            type: 'vless',
+            name: 'Clash Reality',
+            'reality-opts': {
+                'public-key': 'pubkey',
+                'short-id': '08',
+            },
+        });
+    });
+
+    it('adds Clash.Meta reality defaults and preserves websocket early data', function () {
+        const proxy = {
+            type: 'vless',
+            name: 'Reality',
+            server: 'vless.example.com',
+            port: 443,
+            uuid: UUID,
+            tls: true,
+            flow: 'xtls-rprx-vision',
+            network: 'ws',
+            'ws-opts': {
+                path: '/ws?ed=2048',
+                headers: {
+                    Host: 'cdn.example.com',
+                },
+            },
+            'reality-opts': {
+                'public-key': 'pubkey',
+                'short-id': '08',
+            },
+        };
+
+        const internal = produceInternal('ClashMeta', proxy)[0];
+        const external = loadProducedYaml('ClashMeta', proxy);
+
+        expectSubset(internal, {
+            type: 'vless',
+            name: 'Reality',
+            'client-fingerprint': 'chrome',
+            'reality-opts': {
+                'public-key': 'pubkey',
+                'short-id': '08',
+            },
+            'ws-opts': {
+                path: '/ws',
+                'early-data-header-name': 'Sec-WebSocket-Protocol',
+                'max-early-data': 2048,
+            },
+        });
+        expectSubset(external.proxies[0], {
+            type: 'vless',
+            name: 'Reality',
+            'client-fingerprint': 'chrome',
+        });
+    });
+
+    it('emits Mihomo VLESS xhttp proxies and preserves xhttp options', function () {
+        const proxy = {
+            type: 'vless',
+            name: 'XHTTP',
+            server: 'vless-xhttp.example.com',
+            port: 443,
+            uuid: UUID,
+            tls: true,
+            sni: 'sni.example.com',
+            network: 'xhttp',
+            'xhttp-opts': {
+                path: '/xhttp',
+                headers: {
+                    Host: 'cdn.example.com',
+                },
+                mode: 'stream-up',
+                'no-grpc-header': true,
+                'x-padding-bytes': '64-128',
+            },
+            _extra: JSON.stringify({
+                noGRPCHeader: true,
+                xPaddingBytes: '64-128',
+            }),
+        };
+
+        const internal = produceInternal('Mihomo', proxy);
+        const external = loadProducedYaml('Mihomo', proxy);
+
+        expect(internal).to.have.length(1);
+        expect(external.proxies).to.have.length(1);
+        expectSubset(internal[0], {
+            type: 'vless',
+            name: 'XHTTP',
+            network: 'xhttp',
+            servername: 'sni.example.com',
+            'xhttp-opts': {
+                path: '/xhttp',
+                headers: {
+                    Host: 'cdn.example.com',
+                },
+                mode: 'stream-up',
+                'no-grpc-header': true,
+                'x-padding-bytes': '64-128',
+            },
+        });
+        expectSubset(external.proxies[0], {
+            type: 'vless',
+            name: 'XHTTP',
+            network: 'xhttp',
+            servername: 'sni.example.com',
+        });
+    });
+
+    it('normalizes Stash TUIC defaults and external yaml wrapper', function () {
+        const proxy = {
+            type: 'tuic',
+            name: 'TUIC',
+            server: 'tuic.example.com',
+            port: 443,
+            uuid: UUID,
+            password: 'secret',
+            tfo: true,
+        };
+
+        const internal = produceInternal('Stash', proxy)[0];
+        const external = loadProducedYaml('Stash', proxy);
+
+        expectSubset(internal, {
+            type: 'tuic',
+            name: 'TUIC',
+            alpn: ['h3'],
+            'fast-open': true,
+            version: 5,
+        });
+        expectSubset(external.proxies[0], {
+            type: 'tuic',
+            name: 'TUIC',
+            alpn: ['h3'],
+            'fast-open': true,
+            version: 5,
+        });
+    });
+
+    it('emits Stash VLESS TCP REALITY proxies without validating flow values', function () {
+        const proxy = {
+            type: 'vless',
+            name: 'Stash Reality Custom Flow',
+            server: 'vless.example.com',
+            port: 443,
+            uuid: UUID,
+            tls: true,
+            network: 'tcp',
+            flow: 'xtls-rprx-unknown',
+            sni: 'sni.example.com',
+            'reality-opts': {
+                'public-key': 'pubkey',
+                'short-id': '08',
+            },
+        };
+
+        const internal = produceInternal('Stash', proxy);
+        const external = loadProducedYaml('Stash', proxy);
+
+        expect(internal).to.have.length(1);
+        expect(external.proxies).to.have.length(1);
+        expectSubset(internal[0], {
+            type: 'vless',
+            name: 'Stash Reality Custom Flow',
+            network: 'tcp',
+            flow: 'xtls-rprx-unknown',
+            servername: 'sni.example.com',
+            'reality-opts': {
+                'public-key': 'pubkey',
+                'short-id': '08',
+            },
+        });
+        expectSubset(external.proxies[0], {
+            type: 'vless',
+            name: 'Stash Reality Custom Flow',
+            network: 'tcp',
+            flow: 'xtls-rprx-unknown',
+            servername: 'sni.example.com',
+            'reality-opts': {
+                'public-key': 'pubkey',
+                'short-id': '08',
+            },
+        });
+    });
+
+    it('keeps default-tcp Stash VLESS REALITY proxies when network is omitted', function () {
+        const proxy = {
+            type: 'vless',
+            name: 'Implicit TCP Reality',
+            server: 'vless.example.com',
+            port: 443,
+            uuid: UUID,
+            tls: true,
+            sni: 'sni.example.com',
+            'reality-opts': {
+                'public-key': 'pubkey',
+                'short-id': '08',
+            },
+        };
+
+        const internal = produceInternal('Stash', proxy);
+        const external = loadProducedYaml('Stash', proxy);
+
+        expect(internal).to.have.length(1);
+        expect(external.proxies).to.have.length(1);
+        expectSubset(internal[0], {
+            type: 'vless',
+            name: 'Implicit TCP Reality',
+            servername: 'sni.example.com',
+            'reality-opts': {
+                'public-key': 'pubkey',
+                'short-id': '08',
+            },
+        });
+        expect(external.proxies[0]).to.not.have.property('network');
+    });
+
+    it('keeps Stash VLESS TCP REALITY proxies when URI input omits flow', function () {
+        const proxies = ProxyUtils.parse(
+            `vless://${UUID}@vless.example.com:443?type=tcp&security=reality&sni=sni.example.com&pbk=pubkey&sid=08#No%20Flow`,
+        );
+
+        const internal = produceInternal('Stash', proxies);
+        const external = loadProducedYaml('Stash', proxies);
+
+        expect(internal).to.have.length(1);
+        expect(external.proxies).to.have.length(1);
+        expect(internal[0]).to.not.have.property('flow');
+        expectSubset(internal[0], {
+            type: 'vless',
+            name: 'No Flow',
+            network: 'tcp',
+            servername: 'sni.example.com',
+            'reality-opts': {
+                'public-key': 'pubkey',
+                'short-id': '08',
+            },
+        });
+        expectSubset(external.proxies[0], {
+            type: 'vless',
+            name: 'No Flow',
+            network: 'tcp',
+            servername: 'sni.example.com',
+            'reality-opts': {
+                'public-key': 'pubkey',
+                'short-id': '08',
+            },
+        });
+    });
+
+    it('keeps Stash VLESS TCP REALITY nodes while still filtering non-tcp and unsupported variants', function () {
+        const proxies = [
+            {
+                type: 'vless',
+                name: 'Supported Reality',
+                server: 'vless.example.com',
+                port: 443,
+                uuid: UUID,
+                tls: true,
+                network: 'tcp',
+                'reality-opts': {
+                    'public-key': 'pubkey',
+                    'short-id': '08',
+                },
+            },
+            {
+                type: 'vless',
+                name: 'Custom Flow',
+                server: 'unsupported-flow.example.com',
+                port: 443,
+                uuid: UUID,
+                tls: true,
+                network: 'tcp',
+                flow: 'xtls-rprx-unknown',
+                'reality-opts': {
+                    'public-key': 'pubkey',
+                    'short-id': '08',
+                },
+            },
+            {
+                type: 'vless',
+                name: 'Reality WS',
+                server: 'vless-ws.example.com',
+                port: 443,
+                uuid: UUID,
+                tls: true,
+                network: 'ws',
+                'ws-opts': {
+                    path: '/ws',
+                    headers: {
+                        Host: 'cdn.example.com',
+                    },
+                },
+                'reality-opts': {
+                    'public-key': 'pubkey',
+                    'short-id': '08',
+                },
+            },
+            {
+                type: 'vless',
+                name: 'XHTTP',
+                server: 'vless-xhttp.example.com',
+                port: 443,
+                uuid: UUID,
+                tls: true,
+                network: 'xhttp',
+                'xhttp-opts': {
+                    path: '/xhttp',
+                },
+                'reality-opts': {
+                    'public-key': 'pubkey',
+                    'short-id': '08',
+                },
+            },
+            {
+                type: 'vless',
+                name: 'Encrypted VLESS',
+                server: 'encrypted.example.com',
+                port: 443,
+                uuid: UUID,
+                tls: true,
+                network: 'tcp',
+                encryption: 'aes-128-gcm',
+                'reality-opts': {
+                    'public-key': 'pubkey',
+                    'short-id': '08',
+                },
+            },
+        ];
+
+        const internal = produceInternal('Stash', proxies);
+        const external = loadProducedYaml('Stash', proxies);
+
+        expect(internal).to.have.length(2);
+        expect(external.proxies).to.have.length(2);
+        expect(internal.map((proxy) => proxy.name)).to.deep.equal([
+            'Supported Reality',
+            'Custom Flow',
+        ]);
+        expect(external.proxies.map((proxy) => proxy.name)).to.deep.equal([
+            'Supported Reality',
+            'Custom Flow',
+        ]);
+        expectSubset(internal[0], {
+            type: 'vless',
+            name: 'Supported Reality',
+        });
+        expectSubset(internal[1], {
+            type: 'vless',
+            name: 'Custom Flow',
+            flow: 'xtls-rprx-unknown',
+        });
+        expectSubset(external.proxies[0], {
+            type: 'vless',
+            name: 'Supported Reality',
+        });
+        expectSubset(external.proxies[1], {
+            type: 'vless',
+            name: 'Custom Flow',
+            flow: 'xtls-rprx-unknown',
+        });
+    });
+
+    it('promotes shadow-tls fields for Shadowrocket', function () {
+        const proxy = {
+            type: 'ss',
+            name: 'ShadowTLS SS',
+            server: 'ss.example.com',
+            port: 8388,
+            cipher: 'aes-128-gcm',
+            password: 'secret',
+            'shadow-tls-password': 'shadow-pass',
+            'shadow-tls-sni': 'mask.example.com',
+            'shadow-tls-version': 3,
+            'skip-cert-verify': true,
+        };
+
+        const internal = produceInternal('Shadowrocket', proxy)[0];
+        const external = loadProducedYaml('Shadowrocket', proxy);
+
+        expectSubset(internal, {
+            type: 'ss',
+            name: 'ShadowTLS SS',
+            plugin: 'shadow-tls',
+            'plugin-opts': {
+                host: 'mask.example.com',
+                password: 'shadow-pass',
+                version: 3,
+            },
+        });
+        expectSubset(external.proxies[0], {
+            type: 'ss',
+            plugin: 'shadow-tls',
+        });
+    });
+
+    it('maps shadowsocks shadow-tls fields into Egern nested structures', function () {
+        const proxy = {
+            type: 'ss',
+            name: 'ShadowTLS SS',
+            server: 'ss.example.com',
+            port: 8388,
+            cipher: 'aes-128-gcm',
+            password: 'secret',
+            'shadow-tls-password': 'shadow-pass',
+            'shadow-tls-sni': 'mask.example.com',
+            'shadow-tls-version': 3,
+        };
+
+        const internal = produceInternal('Egern', proxy)[0];
+        const external = loadProducedYaml('Egern', proxy);
+
+        expectSubset(internal, {
+            shadowsocks: {
+                name: 'ShadowTLS SS',
+                method: 'aes-128-gcm',
+                server: 'ss.example.com',
+                port: 8388,
+                password: 'secret',
+                shadow_tls: {
+                    password: 'shadow-pass',
+                    sni: 'mask.example.com',
+                },
+            },
+        });
+        expectSubset(external.proxies[0], {
+            shadowsocks: {
+                name: 'ShadowTLS SS',
+            },
+        });
+    });
+
+    it('preserves numeric v2ray-plugin mux values across Clash-family YAML producers', function () {
+        const buildProxy = (name, mux) => ({
+            type: 'ss',
+            name,
+            server: 'ss.example.com',
+            port: 8388,
+            cipher: 'aes-128-gcm',
+            password: 'secret',
+            'skip-cert-verify': false,
+            plugin: 'v2ray-plugin',
+            'plugin-opts': {
+                mode: 'websocket',
+                host: 'cdn.example.com',
+                path: '/socket',
+                tls: true,
+                'skip-cert-verify': true,
+                mux,
+            },
+        });
+
+        for (const platform of [
+            'Clash',
+            'ClashMeta',
+            'Shadowrocket',
+            'Stash',
+        ]) {
+            const internal = produceInternal(platform, [
+                buildProxy(`${platform} Mux On`, 1),
+                buildProxy(`${platform} Mux Off`, 0),
+            ]);
+
+            expect(internal, platform).to.have.length(2);
+            expectSubset(internal[0], {
+                name: `${platform} Mux On`,
+                'plugin-opts': {
+                    tls: true,
+                    'skip-cert-verify': true,
+                    mux: 1,
+                },
+            });
+            expectSubset(internal[1], {
+                name: `${platform} Mux Off`,
+                'plugin-opts': {
+                    tls: true,
+                    'skip-cert-verify': true,
+                    mux: 0,
+                },
+            });
+        }
+    });
+
+    it('keeps legacy single-line proxy output by default for Clash-style YAML producers', function () {
+        const proxy = {
+            type: 'ss',
+            name: 'Legacy YAML',
+            server: 'ss.example.com',
+            port: 8388,
+            cipher: 'aes-128-gcm',
+            password: 'secret',
+        };
+
+        for (const platform of [
+            'Clash',
+            'ClashMeta',
+            'Shadowrocket',
+            'Stash',
+            'Egern',
+        ]) {
+            const output = produceExternal(platform, proxy);
+
+            expect(output, platform).to.match(/\n {2}- \{/);
+        }
+    });
+
+    it('emits pretty yaml for Clash-style YAML producers when prettyYaml is enabled', function () {
+        const proxy = {
+            type: 'ss',
+            name: 'Real YAML',
+            server: 'ss.example.com',
+            port: 8388,
+            cipher: 'aes-128-gcm',
+            password: 'secret',
+        };
+
+        for (const platform of [
+            'Clash',
+            'ClashMeta',
+            'Shadowrocket',
+            'Stash',
+            'Egern',
+        ]) {
+            const output = produceExternal(platform, proxy, {
+                prettyYaml: true,
+            });
+            const external = loadProducedYaml(platform, proxy, {
+                prettyYaml: true,
+            });
+
+            expect(output, platform).to.not.match(/\n {2}- \{/);
+            expect(external.proxies, platform).to.have.length(1);
+
+            if (platform === 'Egern') {
+                expectSubset(external.proxies[0], {
+                    shadowsocks: {
+                        name: 'Real YAML',
+                    },
+                });
+            } else {
+                expectSubset(external.proxies[0], {
+                    type: 'ss',
+                    name: 'Real YAML',
+                });
+            }
+        }
+    });
+
+    it('skips invalid Egern nodes and keeps the rest of the subscription', function () {
+        const proxies = [
+            {
+                type: 'vless',
+                name: 'Invalid VLESS',
+                server: 'invalid.example.com',
+                port: 443,
+                uuid: UUID,
+                encryption: 'aes-128-gcm',
+            },
+            {
+                type: 'ss',
+                name: 'Healthy SS',
+                server: 'ss.example.com',
+                port: 8388,
+                cipher: 'aes-128-gcm',
+                password: 'secret',
+            },
+        ];
+
+        const internal = produceInternal('Egern', proxies);
+        const external = loadProducedYaml('Egern', proxies);
+
+        expect(internal).to.have.length(1);
+        expect(external.proxies).to.have.length(1);
+        expectSubset(internal[0], {
+            shadowsocks: {
+                name: 'Healthy SS',
+                method: 'aes-128-gcm',
+            },
+        });
+        expectSubset(external.proxies[0], {
+            shadowsocks: {
+                name: 'Healthy SS',
+            },
+        });
+    });
+
+    it('keeps numeric v2ray-plugin mux state in sing-box plugin opts', function () {
+        const buildProxy = (name, mux) => ({
+            type: 'ss',
+            name,
+            server: 'ss.example.com',
+            port: 8388,
+            cipher: 'aes-128-gcm',
+            password: 'secret',
+            plugin: 'v2ray-plugin',
+            'plugin-opts': {
+                mode: 'websocket',
+                host: 'cdn.example.com',
+                path: '/socket',
+                tls: true,
+                mux,
+            },
+        });
+
+        const output = loadProducedJson('sing-box', [
+            buildProxy('Sing-box Mux On', 1),
+            buildProxy('Sing-box Mux Off', 0),
+        ]);
+        const muxOn = output.outbounds.find(
+            (outbound) => outbound.tag === 'Sing-box Mux On',
+        );
+        const muxOff = output.outbounds.find(
+            (outbound) => outbound.tag === 'Sing-box Mux Off',
+        );
+
+        expect(output.outbounds).to.have.length(2);
+        expectSubset(muxOn, {
+            tag: 'Sing-box Mux On',
+            type: 'shadowsocks',
+            plugin: 'v2ray-plugin',
+            multiplex: {
+                enabled: true,
+            },
+        });
+        expect(muxOn.plugin_opts).to.include('mux=1');
+
+        expectSubset(muxOff, {
+            tag: 'Sing-box Mux Off',
+            type: 'shadowsocks',
+            plugin: 'v2ray-plugin',
+        });
+        expect(muxOff).to.not.have.property('multiplex');
+        expect(muxOff.plugin_opts).to.include('mux=0');
+    });
+
+    it('normalizes boolean v2ray-plugin mux state in sing-box plugin opts', function () {
+        const buildProxy = (name, mux) => ({
+            type: 'ss',
+            name,
+            server: 'ss.example.com',
+            port: 8388,
+            cipher: 'aes-128-gcm',
+            password: 'secret',
+            plugin: 'v2ray-plugin',
+            'plugin-opts': {
+                mode: 'websocket',
+                host: 'cdn.example.com',
+                path: '/socket',
+                tls: true,
+                mux,
+            },
+        });
+
+        const output = loadProducedJson('sing-box', [
+            buildProxy('Sing-box Boolean Mux On', true),
+            buildProxy('Sing-box Boolean Mux Off', false),
+        ]);
+        const muxOn = output.outbounds.find(
+            (outbound) => outbound.tag === 'Sing-box Boolean Mux On',
+        );
+        const muxOff = output.outbounds.find(
+            (outbound) => outbound.tag === 'Sing-box Boolean Mux Off',
+        );
+
+        expectSubset(muxOn, {
+            tag: 'Sing-box Boolean Mux On',
+            type: 'shadowsocks',
+            plugin: 'v2ray-plugin',
+            multiplex: {
+                enabled: true,
+            },
+        });
+        expect(muxOn.plugin_opts).to.include('mux=1');
+
+        expectSubset(muxOff, {
+            tag: 'Sing-box Boolean Mux Off',
+            type: 'shadowsocks',
+            plugin: 'v2ray-plugin',
+        });
+        expect(muxOff).to.not.have.property('multiplex');
+        expect(muxOff.plugin_opts).to.include('mux=0');
+    });
+
+    it('round-trips Clash-style boolean v2ray-plugin mux flags into sing-box exports', function () {
+        const proxies = ProxyUtils.parse(`proxies:
+  - name: Clash Boolean Mux On
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-128-gcm
+    password: secret
+    plugin: v2ray-plugin
+    plugin-opts:
+      mode: websocket
+      host: cdn.example.com
+      path: /socket
+      tls: true
+      mux: true
+  - name: Clash Boolean Mux Off
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-128-gcm
+    password: secret
+    plugin: v2ray-plugin
+    plugin-opts:
+      mode: websocket
+      host: cdn.example.com
+      path: /socket
+      tls: true
+      mux: false
+`);
+
+        const output = loadProducedJson('sing-box', proxies);
+        const muxOn = output.outbounds.find(
+            (outbound) => outbound.tag === 'Clash Boolean Mux On',
+        );
+        const muxOff = output.outbounds.find(
+            (outbound) => outbound.tag === 'Clash Boolean Mux Off',
+        );
+
+        expectSubset(muxOn, {
+            tag: 'Clash Boolean Mux On',
+            type: 'shadowsocks',
+            plugin: 'v2ray-plugin',
+            multiplex: {
+                enabled: true,
+            },
+        });
+        expect(muxOn.plugin_opts).to.include('mux=1');
+
+        expectSubset(muxOff, {
+            tag: 'Clash Boolean Mux Off',
+            type: 'shadowsocks',
+            plugin: 'v2ray-plugin',
+        });
+        expect(muxOff).to.not.have.property('multiplex');
+        expect(muxOff.plugin_opts).to.include('mux=0');
+    });
+
+    it('round-trips Clash-style string boolean v2ray-plugin mux flags into sing-box exports', function () {
+        const proxies = ProxyUtils.parse(`proxies:
+  - name: Clash String Mux On
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-128-gcm
+    password: secret
+    plugin: v2ray-plugin
+    plugin-opts:
+      mode: websocket
+      host: cdn.example.com
+      path: /socket
+      tls: true
+      mux: ' TRUE '
+  - name: Clash String Mux Off
+    type: ss
+    server: ss.example.com
+    port: 8388
+    cipher: aes-128-gcm
+    password: secret
+    plugin: v2ray-plugin
+    plugin-opts:
+      mode: websocket
+      host: cdn.example.com
+      path: /socket
+      tls: true
+      mux: ' false '
+`);
+
+        const output = loadProducedJson('sing-box', proxies);
+        const muxOn = output.outbounds.find(
+            (outbound) => outbound.tag === 'Clash String Mux On',
+        );
+        const muxOff = output.outbounds.find(
+            (outbound) => outbound.tag === 'Clash String Mux Off',
+        );
+
+        expectSubset(muxOn, {
+            tag: 'Clash String Mux On',
+            type: 'shadowsocks',
+            plugin: 'v2ray-plugin',
+            multiplex: {
+                enabled: true,
+            },
+        });
+        expect(muxOn.plugin_opts).to.include('mux=1');
+
+        expectSubset(muxOff, {
+            tag: 'Clash String Mux Off',
+            type: 'shadowsocks',
+            plugin: 'v2ray-plugin',
+        });
+        expect(muxOff).to.not.have.property('multiplex');
+        expect(muxOff.plugin_opts).to.include('mux=0');
+    });
+
+    it('treats string v2ray-plugin mux values from legacy JSON payloads as disabled in sing-box exports', function () {
+        const legacy = 'YWVzLTEyOC1nY206c2VjcmV0QHNzLmV4YW1wbGUuY29tOjgzODg=';
+        const plugin =
+            'eyJtb2RlIjoid2Vic29ja2V0IiwiaG9zdCI6ImNkbi5leGFtcGxlLmNvbSIsInBhdGgiOiIvc29ja2V0IiwidGxzIjp0cnVlLCJtdXgiOiIwIn0=';
+
+        const proxies = ProxyUtils.parse(
+            `ss://${legacy}?v2ray-plugin=${plugin}#Legacy%20JSON%20Mux%20Off`,
+        );
+        const output = loadProducedJson('sing-box', proxies);
+        const outbound = output.outbounds.find(
+            (item) => item.tag === 'Legacy JSON Mux Off',
+        );
+
+        expectSubset(outbound, {
+            tag: 'Legacy JSON Mux Off',
+            type: 'shadowsocks',
+            plugin: 'v2ray-plugin',
+        });
+        expect(outbound).to.not.have.property('multiplex');
+        expect(outbound.plugin_opts).to.include('mux=0');
+    });
+
+    it('emits sing-box outbounds with reality tls and websocket transport', function () {
+        const output = loadProducedJson('sing-box', {
+            type: 'vless',
+            name: 'Reality',
+            server: 'vless.example.com',
+            port: 443,
+            uuid: UUID,
+            tls: true,
+            flow: 'xtls-rprx-vision',
+            network: 'ws',
+            'ws-opts': {
+                path: '/ws?ed=2048',
+                headers: {
+                    Host: 'cdn.example.com',
+                },
+            },
+            'reality-opts': {
+                'public-key': 'pubkey',
+                'short-id': '08',
+            },
+        });
+
+        expect(output.outbounds).to.have.length(1);
+        expect(output.endpoints).to.have.length(0);
+        expectSubset(output.outbounds[0], {
+            tag: 'Reality',
+            type: 'vless',
+            server: 'vless.example.com',
+            server_port: 443,
+            flow: 'xtls-rprx-vision',
+            tls: {
+                enabled: true,
+                server_name: 'vless.example.com',
+                reality: {
+                    enabled: true,
+                    public_key: 'pubkey',
+                    short_id: '08',
+                },
+                utls: {
+                    enabled: true,
+                    fingerprint: 'chrome',
+                },
+            },
+            transport: {
+                type: 'ws',
+                path: '/ws',
+                headers: {
+                    Host: 'cdn.example.com',
+                },
+                early_data_header_name: 'Sec-WebSocket-Protocol',
+                max_early_data: 2048,
+            },
+        });
+    });
+
+    it('normalizes sing-box ech PEM config strings with escaped newlines', function () {
+        const output = loadProducedJson('sing-box', {
+            type: 'vless',
+            name: 'ECH PEM',
+            server: 'ech.example.com',
+            port: 443,
+            uuid: UUID,
+            tls: true,
+            'ech-opts': {
+                enable: true,
+                config: [
+                    '-----BEGIN ECH CONFIGS-----\\nZWNoLWNvbmZpZw==\\n-----END ECH CONFIGS-----',
+                ],
+            },
+        });
+
+        expectSubset(output.outbounds[0], {
+            tag: 'ECH PEM',
+            tls: {
+                enabled: true,
+                server_name: 'ech.example.com',
+                ech: {
+                    enabled: true,
+                    config: [
+                        '-----BEGIN ECH CONFIGS-----',
+                        'ZWNoLWNvbmZpZw==',
+                        '-----END ECH CONFIGS-----',
+                    ],
+                },
+            },
+        });
+    });
+
+    it('omits xhttp proxies from sing-box exports', function () {
+        const output = loadProducedJson('sing-box', {
+            type: 'vless',
+            name: 'XHTTP',
+            server: 'vless-xhttp.example.com',
+            port: 443,
+            uuid: UUID,
+            tls: true,
+            network: 'xhttp',
+            'xhttp-opts': {
+                path: '/xhttp',
+                headers: {
+                    Host: 'cdn.example.com',
+                },
+                mode: 'stream-up',
+            },
+        });
+
+        expect(output.outbounds).to.have.length(0);
+        expect(output.endpoints).to.have.length(0);
+    });
+
+    it('stringifies JSON producer outputs as plain arrays', function () {
+        const proxy = {
+            type: 'http',
+            name: 'JSON HTTP',
+            server: 'http.example.com',
+            port: 8080,
+            username: 'user',
+            password: 'pass',
+        };
+
+        const internal = produceInternal('JSON', proxy);
+        const external = loadProducedJson('JSON', proxy);
+
+        expect(internal).to.have.length(1);
+        expectSubset(internal[0], {
+            type: 'http',
+            name: 'JSON HTTP',
+        });
+        expect(external).to.have.length(1);
+        expectSubset(external[0], {
+            type: 'http',
+            name: 'JSON HTTP',
+        });
+    });
+});

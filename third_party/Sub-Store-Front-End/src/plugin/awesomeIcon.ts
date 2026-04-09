@@ -1,0 +1,93 @@
+import { library } from '@fortawesome/fontawesome-svg-core';
+
+import {
+  faAnglesRight,
+  faAngleRight,
+  faArrowRotateRight,
+  faArrowsRotate,
+  faArrowUpRightFromSquare,
+  faBan,
+  faCheck,
+  faCircleQuestion,
+  faCircleXmark,
+  faXmark,
+  faClone,
+  faCloudArrowDown,
+  faCloudArrowUp,
+  faCode,
+  faEye,
+  faEllipsis,
+  faFloppyDisk,
+  faGrip,
+  faLanguage,
+  faList,
+  faListCheck,
+  faTableColumns,
+  faToggleOn,
+  faToggleOff,
+  faLocationArrow,
+  faPaste,
+  faPenNib,
+  faPenToSquare,
+  faPlus,
+  faReply,
+  faTrashCan,
+  faEraser,
+  faT,
+  faICursor,
+  faFileImport,
+  faFileExport,
+  faShareNodes,
+  faLink,
+  faSquareArrowUpRight,
+  faMaximize,
+  faMinimize,
+  faBars,
+  faBoxArchive,
+  faShare
+} from '@fortawesome/free-solid-svg-icons';
+
+library.add(faFileImport);
+library.add(faFileExport);
+library.add(faToggleOn);
+library.add(faToggleOff);
+library.add(faLanguage);
+library.add(faList);
+library.add(faListCheck);
+library.add(faTableColumns);
+library.add(faCheck);
+library.add(faPlus);
+library.add(faReply);
+library.add(faArrowUpRightFromSquare);
+library.add(faTrashCan);
+library.add(faPenNib);
+library.add(faClone);
+library.add(faEye);
+library.add(faGrip);
+library.add(faCircleQuestion);
+library.add(faFloppyDisk);
+library.add(faCircleXmark);
+library.add(faXmark);
+library.add(faLocationArrow);
+library.add(faCode);
+library.add(faArrowRotateRight);
+library.add(faArrowsRotate);
+library.add(faAnglesRight);
+library.add(faAngleRight);
+library.add(faCloudArrowDown);
+library.add(faCloudArrowUp);
+library.add(faBan);
+library.add(faPenToSquare);
+library.add(faPaste);
+library.add(faEraser);
+library.add(faT);
+library.add(faICursor);
+library.add(faShareNodes);
+library.add(faLink);
+library.add(faSquareArrowUpRight);
+library.add(faBars);
+library.add(faEllipsis);
+library.add(faMaximize);
+library.add(faMinimize);
+library.add(faBoxArchive);
+library.add(faShare);
